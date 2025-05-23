@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - FILE_STORING_SERVICE_URL=http://file-storing-service:8081
+      - FILE_ANALYSIS_SERVICE_URL=http://file-analysis-service:8082
+      - WORD_CLOUD_SERVICE_URL=http://word-cloud-service:8083
+
+    depends_on:
+      - file-storing-service
+      - file-analysis-service
+    networks:
+      - text-scanner-network
+
+  file-storing-service:
+    build: ./file-storing-service
+    ports:
+      - "8081:8081"
+    environment:
+      - PORT=8081
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=postgres
+    depends_on:
+      - postgres
+    networks:
+      - text-scanner-network
+
+  file-analysis-service:
+    build: ./file-analysis-service
+    ports:
+      - "8082:8082"
+    environment:
+      - PORT=8082
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=postgres
+      - FILE_STORING_SERVICE_URL=http://file-storing-service:8081
+      - WORD_CLOUD_SERVICE_URL=http://word-cloud-service:8083 # optional
+    depends_on:
+      - postgres
+      - file-storing-service
+      - word-cloud-service
+    networks:
+      - text-scanner-network
+
+  postgres:
+    image: postgres:latest
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - text-scanner-network
+
+  # Optional word cloud API service
+  word-cloud-service:
+    build: ./word-cloud-service
+    ports:
+      - "8083:8083"
+    volumes:
+      - ./word-cloud-service/wordclouds:/app/wordclouds
+      - ./word-cloud-service/fonts:/root/fonts
+    networks:
+      - text-scanner-network
+
+volumes:
+  postgres_data:
+
+networks:
+  text-scanner-network:
+    driver: bridge
