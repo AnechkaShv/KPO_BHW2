@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"io"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -41,12 +41,14 @@ func (h *Handler) GetWordCloud(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	image, err := h.analyzer.repo.GetWordCloud(imageID)
+	imgData, err := h.analyzer.repo.GetWordCloud(imageID)
 	if err != nil {
-		http.Error(w, "Failed to get word cloud", http.StatusInternalServerError)
+		http.Error(w, "Word cloud not found", http.StatusNotFound)
 		return
 	}
 
 	w.Header().Set("Content-Type", "image/png")
-	io.Copy(w, image)
+	if _, err := w.Write(imgData); err != nil {
+		log.Printf("Failed to send word cloud: %v", err)
+	}
 }

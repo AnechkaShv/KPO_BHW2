@@ -1,10 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"log"
-	"net/http"
+	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
@@ -23,96 +23,117 @@ func NewAnalyzer(repo Repository, wordCloudAPI string) *Analyzer {
 }
 
 func (a *Analyzer) Analyze(fileID string) (*AnalysisResult, error) {
-	// Проверяем существующий анализ
-	existing, err := a.repo.GetAnalysisByFileID(fileID)
+	existingAnalysis, err := a.repo.GetAnalysisByFileID(fileID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check existing analysis: %v", err)
 	}
-	if existing != nil {
-		return existing, nil
+	if existingAnalysis != nil {
+		return existingAnalysis, nil
 	}
 
-	// Получаем содержимое файла
 	content, err := a.repo.GetFileContent(fileID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file content: %v", err)
 	}
 
-	// Базовый анализ текста
-	paragraphs := strings.Count(content, "\n\n") + 1
-	words := len(strings.Fields(content))
+	if strings.TrimSpace(content) == "" {
+		return nil, fmt.Errorf("file content is empty")
+	}
+
+	// Подсчет статистики
+	paragraphs := countParagraphs(content)
+	words := countWords(content)
 	characters := len([]rune(content))
 
-	// Проверка на плагиат
-	plagiarism, err := a.checkPlagiarism(content)
+	// Проверка на плагиат (выполняется всегда)
+	plagiarismRate, similarFiles, err := a.checkPlagiarism(content, fileID)
 	if err != nil {
-		log.Printf("Plagiarism check failed: %v", err)
+		log.Printf("Plagiarism check warning: %v", err)
 	}
 
-	// Генерация облака слов
-	wordCloudURL, err := a.generateWordCloud(content)
-	if err != nil {
-		log.Printf("Word cloud generation failed: %v", err)
+	wordCloudURL := ""
+	if len(strings.Fields(content)) >= 1 {
+		url, err := a.generateWordCloud(content)
+		if err != nil {
+			log.Printf("Word cloud generation failed: %v", err)
+		} else {
+			wordCloudURL = url
+		}
+	} else {
+		log.Printf("Text too short for word cloud generation")
 	}
 
-	// Сохраняем результат
+	// Создаем результат анализа
 	result := AnalysisResult{
-		ID:           uuid.New().String(),
-		FileID:       fileID,
-		Paragraphs:   paragraphs,
-		Words:        words,
-		Characters:   characters,
-		Plagiarism:   plagiarism,
-		WordCloudURL: wordCloudURL,
+		ID:             uuid.New().String(),
+		FileID:         fileID,
+		Paragraphs:     paragraphs,
+		Words:          words,
+		Characters:     characters,
+		PlagiarismRate: plagiarismRate,
+		SimilarFiles:   similarFiles,
+		WordCloudURL:   wordCloudURL,
 	}
 
 	if err := a.repo.SaveAnalysis(result); err != nil {
-		return nil, fmt.Errorf("failed to save analysis: %v", err)
+		return nil, fmt.Errorf("failed to save analysis result: %v", err)
 	}
 
 	return &result, nil
 }
 
-func (a *Analyzer) checkPlagiarism(content string) (float64, error) {
-	similarFiles, err := a.repo.FindSimilarFiles(content)
+func (a *Analyzer) checkPlagiarism(content, currentFileID string) (float64, []SimilarFile, error) {
+	similarFiles, err := a.repo.FindSimilarFiles(content, currentFileID)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	if len(similarFiles) > 0 {
-		return similarFiles[0].Similarity, nil
+		return similarFiles[0].Similarity, similarFiles, nil
 	}
-	return 0, nil
+	return 0, nil, nil
 }
 
 func (a *Analyzer) generateWordCloud(content string) (string, error) {
-	// Подготавливаем запрос к Word Cloud API
-	requestBody := fmt.Sprintf(`{
-		"text": "%s",
-		"width": 800,
-		"height": 600,
-		"format": "png",
-		"removeStopwords": true,
-		"caseSensitive": false,
-		"maxNumWords": 100
-	}`, strings.ReplaceAll(content, `"`, `\"`))
+	cleanedContent := cleanText(content)
 
-	// Отправляем запрос
-	resp, err := http.Post(a.wordCloudAPI, "application/json", bytes.NewBufferString(requestBody))
-	if err != nil {
-		return "", fmt.Errorf("failed to request word cloud: %v", err)
+	wordCloudURL := fmt.Sprintf("https://quickchart.io/wordcloud?text=%s&width=800&height=600&format=png",
+		url.QueryEscape(cleanedContent))
+
+	return wordCloudURL, nil
+}
+
+func cleanText(text string) string {
+	// Keep basic punctuation that might be part of words
+	replacer := strings.NewReplacer(
+		"\n", " ", "\r", " ", "\t", " ",
+		"(", " ", ")", " ", "[", " ", "]", " ",
+		"{", " ", "}", " ", "\"", " ", "'", " ",
+	)
+	cleaned := replacer.Replace(text)
+
+	// Remove standalone punctuation but keep words with apostrophes
+	reg := regexp.MustCompile(`(^|\s)[^\w']+(\s|$)|[^\w'\s]`)
+	cleaned = reg.ReplaceAllString(cleaned, " ")
+
+	// Remove multiple spaces
+	cleaned = strings.Join(strings.Fields(cleaned), " ")
+
+	return cleaned
+}
+
+func countWords(text string) int {
+	words := strings.Fields(text)
+	return len(words)
+}
+
+func countParagraphs(text string) int {
+	paragraphs := strings.Split(text, "\n\n")
+	nonEmptyParagraphs := 0
+	for _, p := range paragraphs {
+		if strings.TrimSpace(p) != "" {
+			nonEmptyParagraphs++
+		}
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("word cloud API returned status %d", resp.StatusCode)
-	}
-
-	// Сохраняем изображение
-	imageID := uuid.New().String()
-	if err := a.repo.SaveWordCloud(imageID, resp.Body); err != nil {
-		return "", fmt.Errorf("failed to save word cloud: %v", err)
-	}
-
-	return fmt.Sprintf("/wordcloud/%s", imageID), nil
+	return nonEmptyParagraphs
 }

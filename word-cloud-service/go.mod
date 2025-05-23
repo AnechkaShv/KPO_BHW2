@@ -9,5 +9,8 @@ require (
 
 require (
 	github.com/google/uuid v1.6.0
-	golang.org/x/image v0.27.0 
+	github.com/psykhi/wordclouds v0.0.0-20231014190151-b9dd58fabbef
+	golang.org/x/image v0.27.0
 )
+
+require github.com/fogleman/gg v1.3.0 // indirect

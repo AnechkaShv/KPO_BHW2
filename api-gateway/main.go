@@ -38,8 +38,8 @@ var (
 			Client: &http.Client{Timeout: 15 * time.Second},
 		},
 		"wordcloud": {
-			Name:   "Word Cloud Service",
-			URL:    getEnv("FILE_ANALYSIS_SERVICE_URL", "http://word-cloud-service:8083"),
+			Name:   "File Analysis Service",
+			URL:    getEnv("FILE_ANALYSIS_SERVICE_URL", "http://file-analysis-service:8082"),
 			Client: &http.Client{Timeout: 15 * time.Second},
 		},
 	}
@@ -71,12 +71,8 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 		sendError(w, fmt.Sprintf("Service '%s' not found", serviceName), http.StatusNotFound)
 		return
 	}
-	if len(parts) > 0 {
-		serviceName += "/"
-	}
 
-	// Prepare request to backend service
-	targetURL := service.URL + "/" + serviceName + strings.Join(parts[1:], "/")
+	targetURL := service.URL + "/" + strings.Join(parts, "/")
 	req, err := http.NewRequest(r.Method, targetURL, r.Body)
 	if err != nil {
 		sendError(w, "Failed to create request", http.StatusInternalServerError)

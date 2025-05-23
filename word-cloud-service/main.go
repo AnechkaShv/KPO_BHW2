@@ -17,8 +17,8 @@ func main() {
 	// Router
 	r := mux.NewRouter()
 
-	r.HandleFunc("/api/wordcloud", handler.GenerateWordCloud).Methods("POST")
-	r.HandleFunc("/api/wordcloud/{id}", handler.GetWordCloud).Methods("GET")
+	r.HandleFunc("/wordcloud", handler.GenerateWordCloud).Methods("POST")
+	r.HandleFunc("/wordcloud/{id}", handler.GetWordCloud).Methods("GET")
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))

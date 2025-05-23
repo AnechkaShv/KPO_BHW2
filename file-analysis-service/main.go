@@ -12,6 +12,8 @@ func main() {
 	handler := NewHandler(analyzer)
 
 	http.HandleFunc("/analyze/", handler.AnalyzeFile)
+	http.HandleFunc("/wordcloud/", handler.GetWordCloud)
+
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
