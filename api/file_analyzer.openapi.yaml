@@ -17,8 +17,6 @@ tags:
     description: Работа с текстовыми файлами
   - name: Analysis
     description: Анализ текста
-  - name: WordCloud
-    description: Генерация облака слов
 
 paths:
   /files:
@@ -67,6 +65,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/FileMetadata'
+        '404':
+          description: Файл не найден
+    
+  /files/content/{fileId}:
+    get:
+      tags: [Files]
+      summary: Получение содержимого файла
+      parameters:
+        - name: fileId
+          in: header
+          required: true
+          schema:
+            type: string
+          description: ID файла
+      responses:
+        '200':
+          description: Метаданные файла
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileContent'
         '404':
           description: Файл не найден
 
@@ -213,6 +232,13 @@ components:
           minimum: 0
           maximum: 100
           description: Процент схожести
+    FileContent:
+      type: object
+      properties:
+        text:
+          type: string
+          example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+
   responses:
     BadRequest:
       description: Неверные параметры запроса
