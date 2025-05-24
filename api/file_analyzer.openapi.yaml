@@ -1,0 +1,222 @@
+openapi: 3.0.3
+info:
+  title: Text Scanner API
+  description: API для анализа текстовых файлов с проверкой на плагиат и генерацией облака слов
+  version: 1.0.0
+  contact:
+    email: support@textscanner.example.com
+
+servers:
+  - url: http://localhost:8080/api
+    description: Локальный сервер разработки
+  - url: https://api.textscanner.example.com
+    description: Продакшен сервер
+
+tags:
+  - name: Files
+    description: Работа с текстовыми файлами
+  - name: Analysis
+    description: Анализ текста
+  - name: WordCloud
+    description: Генерация облака слов
+
+paths:
+  /files:
+    post:
+      tags: [Files]
+      summary: Загрузка текстового файла
+      description: Загружает файл в формате .txt для последующего анализа
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Текстовый файл для анализа
+      responses:
+        '201':
+          description: Файл успешно загружен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileUploadResponse'
+        '400':
+          description: Неверный формат файла
+        '500':
+          description: Ошибка сервера
+
+  /files/{fileId}:
+    get:
+      tags: [Files]
+      summary: Получение метаданных файла
+      parameters:
+        - name: fileId
+          in: header
+          required: true
+          schema:
+            type: string
+          description: ID файла
+      responses:
+        '200':
+          description: Метаданные файла
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMetadata'
+        '404':
+          description: Файл не найден
+
+  /analyze/{fileId}:
+    get:
+      tags: [Analysis]
+      summary: Анализ текстового файла
+      description: Возвращает статистику и результаты проверки на плагиат
+      parameters:
+        - name: fileId
+          in: header
+          required: true
+          schema:
+            type: string
+          description: ID файла для анализа
+      responses:
+        '200':
+          description: Результаты анализа
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisResult'
+        '404':
+          description: Файл не найден
+        '500':
+          description: Ошибка анализа
+
+  /wordcloud/{imageId}:
+    get:
+      tags: [WordCloud]
+      summary: Получение облака слов
+      parameters:
+        - name: imageId
+          in: header
+          required: true
+          schema:
+            type: string
+          description: ID изображения облака слов
+      responses:
+        '200':
+          description: Изображение облака слов в формате PNG
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Облако слов не найдено
+
+  /health:
+    get:
+      tags: [System]
+      summary: Проверка здоровья сервиса
+      responses:
+        '200':
+          description: Сервис работает
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+
+components:
+  schemas:
+    FileUploadResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+          description: Уникальный идентификатор файла
+
+    FileMetadata:
+      type: object
+      properties:
+        id:
+          type: string
+          example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        name:
+          type: string
+          example: "report.txt"
+        hash:
+          type: string
+          example: "a1b2c3d4e5f6..."
+        location:
+          type: string
+          example: "/uploads/report-20230526.txt"
+
+    AnalysisResult:
+      type: object
+      required:
+        - id
+        - fileId
+        - paragraphs
+        - words
+        - characters
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ID анализа
+        fileId:
+          type: string
+          format: uuid
+          description: ID анализируемого файла
+        paragraphs:
+          type: integer
+          minimum: 0
+          description: Количество параграфов
+        words:
+          type: integer
+          minimum: 0
+          description: Количество слов
+        characters:
+          type: integer
+          minimum: 0
+          description: Количество символов
+        similarFiles:
+          type: array
+          items:
+            $ref: '#/components/schemas/SimilarFile'
+          description: Список похожих файлов
+        wordCloudId:
+          type: string
+          format: uuid
+          description: ID облака слов
+    SimilarFile:
+      type: object
+      required:
+        - fileId
+        - name
+        - similarity
+      properties:
+        fileId:
+          type: string
+          format: uuid
+          description: ID похожего файла
+        name:
+          type: string
+          description: Название файла
+        similarity:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+          description: Процент схожести
+  responses:
+    BadRequest:
+      description: Неверные параметры запроса
+    NotFound:
+      description: Запрошенный ресурс не найден
+    ServerError:
+      description: Внутренняя ошибка сервера
