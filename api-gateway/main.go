@@ -79,21 +79,18 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Copy headers
 	for name, values := range r.Header {
 		for _, value := range values {
 			req.Header.Add(name, value)
 		}
 	}
 
-	// Add X-Forwarded headers
 	req.Header.Set("X-Forwarded-For", r.RemoteAddr)
 	req.Header.Set("X-Forwarded-Host", r.Host)
 	req.Header.Set("X-Forwarded-Proto", "http")
 
 	log.Printf("Forwarding request to %s: %s %s", service.Name, r.Method, targetURL)
 
-	// Send request to backend service
 	resp, err := service.Client.Do(req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -106,17 +103,14 @@ func apiHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	// Copy response headers
 	for name, values := range resp.Header {
 		for _, value := range values {
 			w.Header().Add(name, value)
 		}
 	}
 
-	// Copy status code
 	w.WriteHeader(resp.StatusCode)
 
-	// Copy response body
 	if _, err := io.Copy(w, resp.Body); err != nil {
 		log.Printf("Failed to write response: %v", err)
 	}

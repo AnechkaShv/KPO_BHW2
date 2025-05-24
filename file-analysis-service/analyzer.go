@@ -2,12 +2,20 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
+)
+
+const (
+	maxTextLengthForWordCloud = 10000
+	minWordsForWordCloud      = 1
 )
 
 type Analyzer struct {
@@ -23,56 +31,38 @@ func NewAnalyzer(repo Repository, wordCloudAPI string) *Analyzer {
 }
 
 func (a *Analyzer) Analyze(fileID string) (*AnalysisResult, error) {
-	existingAnalysis, err := a.repo.GetAnalysisByFileID(fileID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check existing analysis: %v", err)
-	}
-	if existingAnalysis != nil {
-		return existingAnalysis, nil
-	}
-
 	content, err := a.repo.GetFileContent(fileID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file content: %v", err)
 	}
 
-	if strings.TrimSpace(content) == "" {
-		return nil, fmt.Errorf("file content is empty")
-	}
-
-	// Подсчет статистики
 	paragraphs := countParagraphs(content)
 	words := countWords(content)
 	characters := len([]rune(content))
 
-	// Проверка на плагиат (выполняется всегда)
-	plagiarismRate, similarFiles, err := a.checkPlagiarism(content, fileID)
+	_, similarFiles, err := a.calculatePlagiarism(content, fileID)
 	if err != nil {
-		log.Printf("Plagiarism check warning: %v", err)
+		log.Printf("Plagiarism calculation warning: %v", err)
 	}
 
-	wordCloudURL := ""
-	if len(strings.Fields(content)) >= 1 {
-		url, err := a.generateWordCloud(content)
+	wordCloudID := ""
+	if words >= minWordsForWordCloud {
+		id, err := a.generateWordCloud(content)
 		if err != nil {
-			log.Printf("Word cloud generation failed: %v", err)
+			log.Printf("Word cloud generation warning: %v", err)
 		} else {
-			wordCloudURL = url
+			wordCloudID = id
 		}
-	} else {
-		log.Printf("Text too short for word cloud generation")
 	}
 
-	// Создаем результат анализа
 	result := AnalysisResult{
-		ID:             uuid.New().String(),
-		FileID:         fileID,
-		Paragraphs:     paragraphs,
-		Words:          words,
-		Characters:     characters,
-		PlagiarismRate: plagiarismRate,
-		SimilarFiles:   similarFiles,
-		WordCloudURL:   wordCloudURL,
+		ID:           uuid.New().String(),
+		FileID:       fileID,
+		Paragraphs:   paragraphs,
+		Words:        words,
+		Characters:   characters,
+		SimilarFiles: similarFiles,
+		WordCloudID:  wordCloudID,
 	}
 
 	if err := a.repo.SaveAnalysis(result); err != nil {
@@ -82,44 +72,104 @@ func (a *Analyzer) Analyze(fileID string) (*AnalysisResult, error) {
 	return &result, nil
 }
 
-func (a *Analyzer) checkPlagiarism(content, currentFileID string) (float64, []SimilarFile, error) {
-	similarFiles, err := a.repo.FindSimilarFiles(content, currentFileID)
+func (a *Analyzer) calculatePlagiarism(content string, fileID string) (float64, []SimilarFile, error) {
+	files, err := a.repo.GetAllFilesExcept(fileID)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, fmt.Errorf("failed to get files for comparison: %v", err)
 	}
 
-	if len(similarFiles) > 0 {
-		return similarFiles[0].Similarity, similarFiles, nil
+	currentWords := strings.Fields(cleanText(content))
+	if len(currentWords) == 0 {
+		return 0, nil, nil
 	}
-	return 0, nil, nil
+
+	var similarFiles []SimilarFile
+	totalUniqueWords := make(map[string]bool)
+	plagiarizedWords := make(map[string]bool)
+
+	for _, file := range files {
+		fileWords := strings.Fields(cleanText(file.Content))
+		fileWordSet := make(map[string]bool)
+
+		for _, word := range fileWords {
+			fileWordSet[word] = true
+			totalUniqueWords[word] = true
+		}
+
+		matches := 0
+		for _, word := range currentWords {
+			if fileWordSet[word] {
+				plagiarizedWords[word] = true
+				matches++
+			}
+		}
+
+		if len(fileWords) > 0 {
+			similarity := float64(matches) / float64(len(currentWords)) * 100
+			if similarity > 5 { // Порог в 5%
+				similarFiles = append(similarFiles, SimilarFile{
+					FileID:     file.ID,
+					Name:       file.Name,
+					Similarity: similarity,
+				})
+			}
+		}
+	}
+
+	var plagiarismRate float64
+	if len(totalUniqueWords) > 0 {
+		plagiarismRate = float64(len(plagiarizedWords)) / float64(len(currentWords)) * 100
+	}
+
+	sort.Slice(similarFiles, func(i, j int) bool {
+		return similarFiles[i].Similarity > similarFiles[j].Similarity
+	})
+
+	return plagiarismRate, similarFiles, nil
 }
 
 func (a *Analyzer) generateWordCloud(content string) (string, error) {
 	cleanedContent := cleanText(content)
+	if len(strings.Fields(cleanedContent)) < minWordsForWordCloud {
+		return "", fmt.Errorf("not enough meaningful words after cleaning")
+	}
 
-	wordCloudURL := fmt.Sprintf("https://quickchart.io/wordcloud?text=%s&width=800&height=600&format=png",
+	cloudID := uuid.New().String()
+
+	wordCloudURL := fmt.Sprintf("https://quickchart.io/wordcloud?text=%s&width=800&height=600&format=png&padding=2",
 		url.QueryEscape(cleanedContent))
 
-	return wordCloudURL, nil
+	resp, err := http.Get(wordCloudURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to download word cloud: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("word cloud API returned status %d", resp.StatusCode)
+	}
+
+	imgData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read word cloud image: %v", err)
+	}
+
+	if err := a.repo.SaveWordCloud(cloudID, imgData); err != nil {
+		return "", fmt.Errorf("failed to save word cloud to DB: %v", err)
+	}
+
+	return cloudID, nil
 }
 
 func cleanText(text string) string {
-	// Keep basic punctuation that might be part of words
-	replacer := strings.NewReplacer(
-		"\n", " ", "\r", " ", "\t", " ",
-		"(", " ", ")", " ", "[", " ", "]", " ",
-		"{", " ", "}", " ", "\"", " ", "'", " ",
-	)
-	cleaned := replacer.Replace(text)
+	text = strings.ToLower(text)
 
-	// Remove standalone punctuation but keep words with apostrophes
-	reg := regexp.MustCompile(`(^|\s)[^\w']+(\s|$)|[^\w'\s]`)
-	cleaned = reg.ReplaceAllString(cleaned, " ")
+	reg := regexp.MustCompile(`[^\w\s'-]`)
+	text = reg.ReplaceAllString(text, "")
 
-	// Remove multiple spaces
-	cleaned = strings.Join(strings.Fields(cleaned), " ")
+	text = strings.Join(strings.Fields(text), " ")
 
-	return cleaned
+	return text
 }
 
 func countWords(text string) int {

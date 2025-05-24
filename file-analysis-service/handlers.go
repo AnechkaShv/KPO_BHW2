@@ -35,13 +35,13 @@ func (h *Handler) AnalyzeFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetWordCloud(w http.ResponseWriter, r *http.Request) {
-	imageID := strings.TrimPrefix(r.URL.Path, "/wordcloud/")
-	if imageID == "" {
-		http.Error(w, "Image ID is required", http.StatusBadRequest)
+	cloudID := strings.TrimPrefix(r.URL.Path, "/wordcloud/")
+	if cloudID == "" {
+		http.Error(w, "Word cloud ID is required", http.StatusBadRequest)
 		return
 	}
 
-	imgData, err := h.analyzer.repo.GetWordCloud(imageID)
+	imgData, err := h.analyzer.repo.GetWordCloud(cloudID)
 	if err != nil {
 		http.Error(w, "Word cloud not found", http.StatusNotFound)
 		return

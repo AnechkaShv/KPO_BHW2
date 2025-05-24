@@ -48,7 +48,6 @@ services:
     depends_on:
       - postgres
       - file-storing-service
-      - word-cloud-service
     networks:
       - text-scanner-network
 
@@ -63,18 +62,6 @@ services:
       - "5432:5432"
     networks:
       - text-scanner-network
-
-  # Optional word cloud API service
-  word-cloud-service:
-    build: ./word-cloud-service
-    ports:
-      - "8083:8083"
-    volumes:
-      - ./word-cloud-service/wordclouds:/app/wordclouds
-      - ./word-cloud-service/fonts:/root/fonts
-    networks:
-      - text-scanner-network
-
 volumes:
   postgres_data:
 

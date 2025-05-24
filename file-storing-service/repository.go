@@ -51,7 +51,6 @@ func NewPostgresRepository() *PostgresRepository {
 		panic(err)
 	}
 
-	// Initialize tables
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS file_metadata (
 			id TEXT PRIMARY KEY,

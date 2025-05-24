@@ -22,14 +22,13 @@ type SimilarFile struct {
 }
 
 type AnalysisResult struct {
-	ID             string        `json:"id"`
-	FileID         string        `json:"file_id"`
-	Paragraphs     int           `json:"paragraphs"`
-	Words          int           `json:"words"`
-	Characters     int           `json:"characters"`
-	PlagiarismRate float64       `json:"plagiarism_rate"`
-	SimilarFiles   []SimilarFile `json:"similar_files"`
-	WordCloudURL   string        `json:"word_cloud_url"`
+	ID           string        `json:"id"`
+	FileID       string        `json:"file_id"`
+	Paragraphs   int           `json:"paragraphs"`
+	Words        int           `json:"words"`
+	Characters   int           `json:"characters"`
+	SimilarFiles []SimilarFile `json:"similar_files"`
+	WordCloudID  string        `json:"word_cloud_id"`
 }
 
 type FileMetadata struct {
@@ -47,10 +46,16 @@ type Repository interface {
 	GetFileMetadata(fileID string) (*FileMetadata, error)
 	SaveWordCloud(id string, image []byte) error
 	GetWordCloud(id string) ([]byte, error)
+	GetAllFilesExcept(fileID string) ([]FileForComparison, error)
 }
 
 type PostgresRepository struct {
 	db *sql.DB
+}
+type FileForComparison struct {
+	ID      string
+	Name    string
+	Content string
 }
 
 func NewPostgresRepository() *PostgresRepository {
@@ -68,7 +73,6 @@ func NewPostgresRepository() *PostgresRepository {
 		log.Fatal(err)
 	}
 
-	// Убедимся, что расширение pg_trgm установлено
 	_, err = db.Exec("CREATE EXTENSION IF NOT EXISTS pg_trgm")
 	if err != nil {
 		log.Fatal(err)
@@ -102,8 +106,30 @@ func NewPostgresRepository() *PostgresRepository {
 	return &PostgresRepository{db: db}
 }
 
+func (r *PostgresRepository) GetAllFilesExcept(fileID string) ([]FileForComparison, error) {
+	rows, err := r.db.Query(`
+        SELECT fm.id, fm.name, fc.content 
+        FROM file_metadata fm
+        JOIN file_content fc ON fm.location = fc.location
+        WHERE fm.id != $1`, fileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var files []FileForComparison
+	for rows.Next() {
+		var f FileForComparison
+		if err := rows.Scan(&f.ID, &f.Name, &f.Content); err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
+
+	return files, nil
+}
+
 func (r *PostgresRepository) GetFileMetadata(fileID string) (*FileMetadata, error) {
-	// Используем File Storing Service для получения метаданных
 	fileStoringURL := os.Getenv("FILE_STORING_SERVICE_URL")
 	if fileStoringURL == "" {
 		return nil, fmt.Errorf("FILE_STORING_SERVICE_URL not set")
@@ -129,7 +155,6 @@ func (r *PostgresRepository) GetFileMetadata(fileID string) (*FileMetadata, erro
 }
 
 func (r *PostgresRepository) FindSimilarFiles(content, currentFileID string) ([]SimilarFile, error) {
-	// Нормализуем текст для сравнения
 	normalizedContent := normalizeText(content)
 
 	rows, err := r.db.Query(`
@@ -194,7 +219,7 @@ func (r *PostgresRepository) SaveAnalysis(result AnalysisResult) error {
         (id, file_id, paragraphs, words, characters, similar_files, word_cloud_url)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
     `, result.ID, result.FileID, result.Paragraphs, result.Words,
-		result.Characters, similarFilesJSON, result.WordCloudURL)
+		result.Characters, similarFilesJSON, result.WordCloudID)
 	return err
 }
 
@@ -233,7 +258,7 @@ func (r *PostgresRepository) GetAnalysisByFileID(fileID string) (*AnalysisResult
 		&result.Words,
 		&result.Characters,
 		&similarFilesJSON,
-		&result.WordCloudURL,
+		&result.WordCloudID,
 	)
 
 	if err != nil {

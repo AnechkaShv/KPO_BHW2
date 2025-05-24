@@ -34,7 +34,6 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Read file content
 	contentBytes, err := io.ReadAll(file)
 	if err != nil {
 		http.Error(w, "Failed to read file content", http.StatusInternalServerError)
@@ -42,12 +41,10 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 	}
 	content := string(contentBytes)
 
-	// Calculate file hash
 	hash := sha256.New()
 	hash.Write(contentBytes)
 	hashSum := hex.EncodeToString(hash.Sum(nil))
 
-	// Check if file already exists
 	existingFile, err := h.repo.GetFileByHash(hashSum)
 	if err != nil {
 		http.Error(w, "Failed to check file existence", http.StatusInternalServerError)
@@ -61,12 +58,10 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate unique ID and location
 	id := uuid.New().String()
 	ext := filepath.Ext(header.Filename)
 	location := strings.TrimSuffix(header.Filename, ext) + "-" + time.Now().Format("20060102150405") + ext
 
-	// Save file metadata and content
 	metadata := FileMetadata{
 		ID:       id,
 		Name:     header.Filename,
