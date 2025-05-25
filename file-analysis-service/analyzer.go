@@ -36,8 +36,8 @@ func (a *Analyzer) Analyze(fileID string) (*AnalysisResult, error) {
 		return nil, fmt.Errorf("failed to get file content: %v", err)
 	}
 
-	paragraphs := countParagraphs(content)
-	words := countWords(content)
+	paragraphs := CountParagraphs(content)
+	words := CountWords(content)
 	characters := len([]rune(content))
 
 	_, similarFiles, err := a.calculatePlagiarism(content, fileID)
@@ -172,12 +172,12 @@ func cleanText(text string) string {
 	return text
 }
 
-func countWords(text string) int {
+func CountWords(text string) int {
 	words := strings.Fields(text)
 	return len(words)
 }
 
-func countParagraphs(text string) int {
+func CountParagraphs(text string) int {
 	paragraphs := strings.Split(text, "\n\n")
 	nonEmptyParagraphs := 0
 	for _, p := range paragraphs {
